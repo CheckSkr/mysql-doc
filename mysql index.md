@@ -113,6 +113,30 @@ B+树是B树的变体，也是一种多路搜索树：
 
 B+树的插入删除：
 >     B+树的维护（算法演示：https://www.cs.usfca.edu/~galles/visualization/BPlusTree.html）
+```
+var tds = $('#AlgorithmSpecificControls').find('td');
+tds.eq(0).find('input').attr('id',"addTxt");
+tds.eq(1).find('input').attr('id',"addBtn");
+
+
+function addNode(count,startValue){
+	for(var i =0 ;i<count;i++){
+		(function(i){
+			setTimeout(function(){
+				$('#addTxt').val(startValue+100*i);
+				$('#addBtn').trigger('click');
+			},1000*i);
+		})(i)
+		
+	}
+};
+
+function  addOne(value){
+    $('#addTxt').val(value);
+	$('#addBtn').trigger('click');
+};
+
+```
 
 **问题:为什么MySQL索引(InnoDB)采用B+树而不是B树？**
 >     1.B-树和B+树最重要的一个区别就是B+树只有叶节点存放数据，其余节点用来索引，而B-树是每个索引节点都会有Data域。这就决定了B+树更适合用来存储外部数据，也就是所谓的磁盘数据。
@@ -143,9 +167,9 @@ B+树的插入删除：
 - 索引的分级(三星索引 three-star system)
 
 ```
-  索引将相关的记录放到一起则获得一星；
-  如果索引的顺序和查找中的排序顺序一致，则获得二星；
-  如果索引中的列包含了查询中所有的列，则获得三星
+    索引将相关的记录放到一起则获得一星；
+    如果索引的顺序和查找中的排序顺序一致，则获得二星；
+    如果索引中的列包含了查询中所有的列，则获得三星
 ```
 
  **InnoDB索引的分类**
@@ -208,11 +232,32 @@ B+树的插入删除：
    在MySQL5.0之后引入了 索引合并(index merge)的策略， 虽然在一定程度上提升了效率，但是在大部分情况 我们使用explain 的时候看到有index merge
    恰恰表明了我们的索引建立的不合理。
    
+4. 覆盖索引(三星索引)： 当MySQL走索引检索时查询到的key值的value 就直接包含了锁查询的字段，不需要回表查询。那么就可以称该索引就是覆盖索引。
+   覆盖索引可以极大提高查询效率，我们使用查询时，尽量优化到覆盖索引。      
    
+``` 
+   mysql> explain select store_id ,film_id from inventory \G;
+   *************************** 1. row ***************************
+              id: 1
+     select_type: SIMPLE
+           table: inventory
+      partitions: NULL
+            type: index
+   possible_keys: NULL
+             key: idx_store_id_film_id
+         key_len: 3
+             ref: NULL
+            rows: 4581
+        filtered: 100.00
+           Extra: Using index
+   1 row in set, 1 warning (0.00 sec)
    
+   ERROR: 
+   No query specified
    
+   上面的查询就用到了 覆盖索引。
    
-   
+```   
 
 
 ### Index Merge Optimization(索引合并优化)：
@@ -327,6 +372,39 @@ SELECT * FROM innodb_table WHERE (key1=1 AND key2=2) OR (key3='foo' AND key4='ba
 那么剩余的c2,…,cn这n-1个上索引都无法用来提取和过滤数据（不管不管是唯一查找还是范围查找），索引记录没有被充分利用。即组合索引前面字段上存在范围查询，那么后面的部分的索引将不能被使用，
 因为后面部分的索引数据是无序。比如，索引key（a，b）中的元组数据为(0,100)、(1,50)、（1，100） ，where查询条件为 a < 2 and b = 100。由于b上得索引数据并不是连续区间，
 因为在读取（1，50）之后不再会读取（1，100），mysql优化器在执行索引区间扫描之后也不再扫描组合索引其后面的部分。
+
+
+### 覆盖索引的延迟关联(deferred join)
+    
+  尽量的使用 覆盖索引，但现实缺很难做到。
+```
+  mysql> explain select * from user_1 where first_name='CzOBj' and last_name like '%G%';
+  +----+-------------+--------+------------+------+---------------+---------+---------+-------+------+----------+-----------------------+
+  | id | select_type | table  | partitions | type | possible_keys | key     | key_len | ref   | rows | filtered | Extra                 |
+  +----+-------------+--------+------------+------+---------------+---------+---------+-------+------+----------+-----------------------+
+  |  1 | SIMPLE      | user_1 | NULL       | ref  | IDX_F_L       | IDX_F_L | 194     | const |    1 |    11.11 | Using index condition |
+  +----+-------------+--------+------------+------+---------------+---------+---------+-------+------+----------+-----------------------+
+  1 row in set, 1 warning (0.00 sec)
+  
+ 
+  mysql> explain select * from user_1 as t0 join (select id from user_1 where first_name='CzOBj' and last_name like '%G%' )  as t1 on (t1.id = t0.id);
+  +----+-------------+--------+------------+--------+-----------------+---------+---------+----------------------+------+----------+--------------------------+
+  | id | select_type | table  | partitions | type   | possible_keys   | key     | key_len | ref                  | rows | filtered | Extra                    |
+  +----+-------------+--------+------------+--------+-----------------+---------+---------+----------------------+------+----------+--------------------------+
+  |  1 | SIMPLE      | user_1 | NULL       | ref    | PRIMARY,IDX_F_L | IDX_F_L | 194     | const                |    1 |    11.11 | Using where; Using index |
+  |  1 | SIMPLE      | t0     | NULL       | eq_ref | PRIMARY         | PRIMARY | 8       | my_indexed.user_1.id |    1 |   100.00 | NULL                     |
+  +----+-------------+--------+------------+--------+-----------------+---------+---------+----------------------+------+----------+--------------------------+
+  2 rows in set, 1 warning (0.00 sec)
+  
+  
+
+  
+```
+  
+
+
+
+
 
 
 # 实践篇
@@ -615,8 +693,65 @@ MySQL难以优化引用了可空列的查询，它会使索引、索引统计和
     6. 多用复合索引，少用多个独立索引，尤其是一些基数（Cardinality）太小（比如说，该列的唯一值总数少于255）的列就不要创建独立索引了；
     7. 类似分页功能的SQL，建议先用主键关联，然后返回结果集，效率会高很多；
 ```  
-  #### 2. 
+
+
+  #### 2. 店长线上业务BAD SQL 
+``` 
+ SELECT COUNT(1) FROM trade_info199 AS t  WHERE seller_nick = '青田食品专营店'  AND  buyer_nick IN 
+( '雨夜_飘飘漫漫' , '~Yw5vwaQN0qHY0hyZcosgm0Wxx/3pjmualFybsmaZNMo=~1~' )AND (merge_tid = 0 OR merge_tid = tid );
+
+
+ SELECT COUNT(1) FROM trade_info199 AS t  WHERE seller_nick = '青田食品专营店'  AND (merge_tid = 0 OR merge_tid = tid )
+ 
+ 优化 how ?
+``` 
+
+
+  #### 3. explain sql 关注点
   
+总的来说，我们只需要关注结果中的几列：
+
+列名   | 备注
+---|---
+type   | 本次查询表联接类型，从这里可以看到本次查询大概的效率
+key  | 最终选择的索引，如果没有索引的话，本次查询效率通常很差
+key_len  | 本次查询用于结果过滤的索引实际长度
+rows   | 预计需要扫描的记录数，预计需要扫描的记录数越小越好
+Extra   | 额外附加信息，主要确认是否出现 Using filesort、Using temporary 这两种情况
+ 
+
+首先看下 type 有几种结果，分别表示什么意思：
+
+
+类型   | 备注
+---|---
+ALL   | 执行full table scan，这事最差的一种方式
+index   | 执行full index scan，并且可以通过索引完成结果扫描并且直接从索引中取的想要的结果数据，也就是可以避免回表，比ALL略好，因为索引文件通常比全部数据要来的小
+range   | 利用索引进行范围查询，比index略好
+index_subquery   | 子查询中可以用到索引
+unique_subquery   | 子查询中可以用到唯一索引，效率比 index_subquery 更高些
+index_merge   | 可以利用index merge特性用到多个索引，提高查询效率
+ref_or_null   | 表连接类型是ref，但进行扫描的索引列中可能包含NULL值
+fulltext   | 全文检索
+ref   | 基于索引的等值查询，或者表间等值连接
+eq_ref   | 表连接时基于主键或非NULL的唯一索引完成扫描，比ref略好
+const   | 基于主键或唯一索引唯一值查询，最多返回一条结果，比eq_ref略好
+system   | 查询对象表只有一行数据，这是最好的情
+
+上面几种情况，从上到下一次是最差到最好。
+
+再来看下Extra列中需要注意出现的几种情况：
+
+关键字  | 备注
+---|---
+Using filesort | 将用外部排序而不是按照索引顺序排列结果，数据较少时从内存排序，否则需要在磁盘完成排序，代价非常高，需要添加合适的索引
+Using temporary |  需要创建一个临时表来存储结果，这通常发生在对没有索引的列进行GROUP BY时，或者ORDER BY里的列不都在索引里，需要添加合适的索引
+Using index	 |  表示MySQL使用覆盖索引避免全表扫描，不需要再到表中进行二次查找数据，这是比较好的结果之一。注意不要和type中的index类型混淆
+Using where | 	通常是进行了全表/全索引扫描后再用WHERE子句完成结果过滤，需要添加合适的索引
+Impossible WHERE | 对Where子句判断的结果总是false而不能选择任何数据，例如where 1=0，无需过多关注
+Select tables optimized away | 使用某些聚合函数来访问存在索引的某个字段时，优化器会通过索引直接一次定位到所需要的数据行完成整个查询，例如MIN()\MAX()，这种也是比较好的结果之一
+	
+ 
    
 ```
   
